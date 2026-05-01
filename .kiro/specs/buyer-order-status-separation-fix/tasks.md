@@ -1,0 +1,112 @@
+# Implementation Plan
+
+- [ ] 1. Write bug condition exploration test
+  - **Property 1: Fault Condition** - Order Status Filtering Bugs
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bugs exist
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate the three filtering bugs exist
+  - **Scoped PBT Approach**: Scope the property to concrete failing cases for each endpoint
+  - Test Bug 1: Admin endpoint missing "Pending" and "Approved" orders
+    - Create test order with status "Pending", query getAdminBuyerPayments endpoint
+    - Assert order is returned (will FAIL on unfixed code - confirms bug)
+    - Create test order with status "Approved", query getAdminBuyerPayments endpoint
+    - Assert order is returned (will FAIL on unfixed code - confirms bug)
+  - Test Bug 2: Buyer Order Status missing "Out for Delivery" orders
+    - Create test order with status "Out for Delivery", query getOrders endpoint
+    - Assert order is returned (will FAIL on unfixed code - confirms bug)
+  - Test Bug 3: Buyer Order History incorrectly including "Out for Delivery" orders
+    - Create test order with status "Out for Delivery", query getOrderHistory endpoint
+    - Assert order is NOT returned (will FAIL on unfixed code - confirms bug)
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bugs exist)
+  - Document counterexamples found to understand root cause
+  - Mark task complete when test is written, run, and failures are documented
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
+
+- [ ] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Employee Endpoint and Other Functionality
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for non-buggy endpoints
+  - Test employee getBuyerPayments endpoint continues to filter ["Completed", "Out for Delivery", "Approved"]
+    - Query employee endpoint on unfixed code
+    - Observe it returns orders with these 3 statuses
+    - Write property-based test asserting this behavior
+  - Test order placement, cancellation, and payment processing remain unchanged
+    - Create orders on unfixed code, observe creation behavior
+    - Cancel orders on unfixed code, observe status update behavior
+    - Process payments on unfixed code, observe payment field updates
+    - Write property-based tests capturing these behaviors
+  - Test all Delivery model field access remains unchanged
+    - Query orders on unfixed code, observe all fields are populated correctly
+    - Write property-based test asserting all fields (milkType, quantity, rate, totalAmount, paymentMethod, paymentCompleted, paymentDate, status, buyer, handledBy) are accessible
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+
+- [-] 3. Fix order status filtering bugs
+
+  - [x] 3.1 Update admin buyer payments status filter
+    - Open backend/src/controllers/admin.controller.js
+    - Locate getAdminBuyerPayments function (around line 3940)
+    - Change status filter from ["Completed", "Out for Delivery"] to ["Pending", "Approved", "Out for Delivery", "Completed"]
+    - Update MongoDB query: `status: { $in: ["Pending", "Approved", "Out for Delivery", "Completed"] }`
+    - _Bug_Condition: isBugCondition(input) where input.endpoint == "getAdminBuyerPayments" AND input.statusFilter excludes "Pending" and "Approved"_
+    - _Expected_Behavior: Admin endpoint returns ALL buyer purchases including Pending, Approved, Out for Delivery, and Completed orders_
+    - _Preservation: Employee getBuyerPayments endpoint continues to use ["Completed", "Out for Delivery", "Approved"] filter_
+    - _Requirements: 2.1, 2.2, 3.1_
+
+  - [x] 3.2 Update buyer order status filter
+    - Open backend/src/controllers/buyer.controller.js
+    - Locate getOrders function (around line 240)
+    - Change status filter from ["Pending", "Approved"] to ["Pending", "Approved", "Out for Delivery"]
+    - Update MongoDB query: `status: { $in: ["Pending", "Approved", "Out for Delivery"] }`
+    - Update comment to reflect "Show all active orders: Pending, Approved, Out for Delivery"
+    - _Bug_Condition: isBugCondition(input) where input.endpoint == "getOrders" AND input.statusFilter excludes "Out for Delivery"_
+    - _Expected_Behavior: Buyer Order Status page shows all active orders including Out for Delivery_
+    - _Preservation: All other buyer controller functions remain unchanged_
+    - _Requirements: 2.3, 2.5, 3.2_
+
+  - [x] 3.3 Update buyer order history filter
+    - Open backend/src/controllers/buyer.controller.js
+    - Locate getOrderHistory function (around line 257)
+    - Simplify status filter to only ["Completed", "Cancelled"]
+    - Remove complex $or condition that includes "Out for Delivery"
+    - Remove complex date-based filtering logic
+    - Update MongoDB query: `status: { $in: ["Completed", "Cancelled"] }`
+    - Update comment from "Show all orders except Pending and Approved" to "Show only terminal state orders: Completed and Cancelled"
+    - _Bug_Condition: isBugCondition(input) where input.endpoint == "getOrderHistory" AND input.statusFilter includes "Out for Delivery"_
+    - _Expected_Behavior: Buyer Order History page shows only terminal state orders (Completed, Cancelled)_
+    - _Preservation: All populate operations and sorting remain unchanged_
+    - _Requirements: 2.4, 2.6, 3.3_
+
+  - [ ] 3.4 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Order Status Filtering Correct
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bugs are fixed)
+    - Verify all three bugs are resolved:
+      - Admin endpoint now returns "Pending" and "Approved" orders
+      - Buyer Order Status now returns "Out for Delivery" orders
+      - Buyer Order History no longer returns "Out for Delivery" orders
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
+
+  - [ ] 3.5 Verify preservation tests still pass
+    - **Property 2: Preservation** - Employee Endpoint and Other Functionality Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm employee endpoint still filters ["Completed", "Out for Delivery", "Approved"]
+    - Confirm order placement, cancellation, and payment processing unchanged
+    - Confirm all Delivery model fields remain accessible
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+
+- [ ] 4. Checkpoint - Ensure all tests pass
+  - Run all property-based tests (fault condition + preservation)
+  - Run all unit tests for the three modified endpoints
+  - Run integration tests for admin and buyer workflows
+  - Verify no regressions in employee endpoints
+  - Ensure all tests pass, ask the user if questions arise

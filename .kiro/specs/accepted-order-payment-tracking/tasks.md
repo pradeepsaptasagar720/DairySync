@@ -1,0 +1,85 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Fault Condition** - Accepted Orders Missing from Payment Tracking
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate "Accepted" orders are excluded from admin payment tracking
+  - **Scoped PBT Approach**: Scope the property to orders with status="Accepted" to ensure reproducibility
+  - Test that orders with status="Accepted" appear in getAdminBuyerPayments response
+  - Test that "Accepted" orders are included in summary.totalAmount calculation
+  - Test that "Accepted" orders with paymentCompleted=true are included in summary.paidAmount
+  - Test that "Accepted" orders with paymentCompleted=false are included in summary.pendingAmount
+  - Test that "Accepted" orders are counted in payment method summaries (codPayments, onlinePayments)
+  - Run test on UNFIXED code (backend/src/controllers/admin.controller.js)
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bug exists)
+  - Document counterexamples found (e.g., "Order with status='Accepted' not in payments array", "Summary totals exclude Accepted order amounts")
+  - Mark task complete when test is written, run, and failure is documented
+  - _Requirements: 2.1, 2.2, 2.3_
+
+- [-] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Non-Accepted Orders Display Unchanged
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for orders with statuses: "Pending", "Approved", "Out for Delivery", "Completed"
+  - Observe: Orders with these statuses appear in payments array with correct formatting
+  - Observe: Summary calculations (totalAmount, paidAmount, pendingAmount) work correctly for these statuses
+  - Observe: Payment method counts (COD, UPI, card) are accurate for these statuses
+  - Observe: Orders with "Cancelled" status are excluded from the response
+  - Write property-based tests capturing observed behavior patterns:
+    - For all orders with status IN ["Pending", "Approved", "Out for Delivery", "Completed"], order appears in payments array
+    - For all orders with these statuses, summary calculations include the order amounts correctly
+    - For all orders with these statuses, payment method counts are accurate
+    - For all orders with status="Cancelled", order does NOT appear in payments array
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4_
+
+- [ ] 3. Fix for Accepted Order Payment Tracking
+
+  - [ ] 3.1 Implement the fix
+    - Open file: backend/src/controllers/admin.controller.js
+    - Locate the getAdminBuyerPayments function (around line 3940)
+    - Find the MongoDB query with status filter: `status: { $in: ["Pending", "Approved", "Out for Delivery", "Completed"] }`
+    - Add "Accepted" to the status filter array
+    - Updated filter: `status: { $in: ["Pending", "Accepted", "Approved", "Out for Delivery", "Completed"] }`
+    - Ensure "Cancelled" status remains excluded from the filter
+    - Verify no other changes are needed (population, formatting, summary calculations will work automatically)
+    - _Bug_Condition: isBugCondition(order) where order.status = "Accepted" AND order EXISTS in database AND admin is viewing buyer payments page_
+    - _Expected_Behavior: Orders with "Accepted" status SHALL appear in payments array AND SHALL be included in summary calculations (totalAmount, paidAmount/pendingAmount based on paymentCompleted, payment method counts)_
+    - _Preservation: Orders with status IN ["Pending", "Approved", "Out for Delivery", "Completed"] SHALL produce exactly the same result as original function, preserving presence in payments array, formatting, and contribution to summary calculations_
+    - _Requirements: 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 3.4_
+
+  - [ ] 3.2 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Accepted Orders Appear in Payment Tracking
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed)
+    - Verify "Accepted" orders appear in payments array
+    - Verify "Accepted" orders are included in summary.totalAmount
+    - Verify "Accepted" orders with paymentCompleted=true are in summary.paidAmount
+    - Verify "Accepted" orders with paymentCompleted=false are in summary.pendingAmount
+    - Verify "Accepted" orders are counted in payment method summaries
+    - _Requirements: 2.1, 2.2, 2.3_
+
+  - [ ] 3.3 Verify preservation tests still pass
+    - **Property 2: Preservation** - Non-Accepted Orders Display Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Verify orders with "Pending", "Approved", "Out for Delivery", "Completed" statuses still appear correctly
+    - Verify summary calculations remain accurate for existing statuses
+    - Verify payment method counts remain correct
+    - Verify "Cancelled" orders remain excluded
+    - Confirm all tests still pass after fix (no regressions)
+
+- [ ] 4. Checkpoint - Ensure all tests pass
+  - Run all property-based tests (fault condition + preservation)
+  - Verify all tests pass successfully
+  - Test full order workflow: create order (Pending) → delivery boy accepts (Accepted) → verify appears in admin payment tracking
+  - Test admin dashboard displays "Accepted" orders correctly with all fields populated
+  - Ensure all tests pass, ask the user if questions arise
